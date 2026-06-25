@@ -1,0 +1,180 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Prism Labs Connector — cross-account S3 access for ML platform"
+
+Parameters:
+  PrismLabsAccountId:
+    Type: String
+    Description: "AWS account ID of the Prism Labs platform"
+    AllowedPattern: "^[0-9]{12}$"
+  TenantId:
+    Type: String
+    Description: "Unique tenant ID provided during registration"
+    AllowedPattern: "^[a-z0-9-]{8,36}$"
+  ConnectorVersion:
+    Type: String
+    Default: "1.0.0"
+    Description: "Connector version tag"
+
+Resources:
+  InputBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "prismlabs-input-${TenantId}"
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  InputBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref InputBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - !GetAtt InputBucket.Arn
+              - !Sub "${InputBucket.Arn}/*"
+            Condition:
+              Bool:
+                "aws:SecureTransport": "false"
+
+  OutputBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "prismlabs-output-${TenantId}"
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  OutputBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref OutputBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - !GetAtt OutputBucket.Arn
+              - !Sub "${OutputBucket.Arn}/*"
+            Condition:
+              Bool:
+                "aws:SecureTransport": "false"
+
+  CrossAccountRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "prismlabs-connector-${TenantId}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Ref PrismLabsAccountId
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                "sts:ExternalId": !Ref TenantId
+      Policies:
+        - PolicyName: prismlabs-connector-policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub "${InputBucket.Arn}/*"
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub "${OutputBucket.Arn}/*"
+              - Effect: Allow
+                Action:
+                  - s3:GetBucketLocation
+                  - s3:HeadBucket
+                Resource:
+                  - !GetAtt InputBucket.Arn
+                  - !GetAtt OutputBucket.Arn
+
+  ConnectorLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "prismlabs-connector-lambda-${TenantId}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: lambda-basic-execution
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+
+  ConnectorLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "prismlabs-connector-${TenantId}"
+      Runtime: python3.12
+      Handler: index.handler
+      Role: !GetAtt ConnectorLambdaRole.Arn
+      Timeout: 30
+      Environment:
+        Variables:
+          TENANT_ID: !Ref TenantId
+          CONNECTOR_VERSION: !Ref ConnectorVersion
+          INPUT_BUCKET: !Ref InputBucket
+          OUTPUT_BUCKET: !Ref OutputBucket
+      Code:
+        ZipFile: |
+          import json, os
+          def handler(event, context):
+              return {
+                  "statusCode": 200,
+                  "body": json.dumps({
+                      "tenant_id": os.environ["TENANT_ID"],
+                      "version": os.environ["CONNECTOR_VERSION"],
+                      "input_bucket": os.environ["INPUT_BUCKET"],
+                      "output_bucket": os.environ["OUTPUT_BUCKET"],
+                      "status": "healthy"
+                  })
+              }
+
+Outputs:
+  CrossAccountRoleArn:
+    Description: "ARN of the cross-account IAM role for Prism Labs"
+    Value: !GetAtt CrossAccountRole.Arn
+  InputBucketName:
+    Description: "S3 bucket for uploading input data"
+    Value: !Ref InputBucket
+  OutputBucketName:
+    Description: "S3 bucket for receiving results"
+    Value: !Ref OutputBucket
+  ConnectorVersion:
+    Description: "Connector stack version"
+    Value: !Ref ConnectorVersion
