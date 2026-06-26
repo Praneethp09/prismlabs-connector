@@ -94,6 +94,7 @@ Resources:
             Condition:
               StringEquals:
                 "sts:ExternalId": !Ref TenantId
+                "aws:SourceAccount": !Ref PrismLabsAccountId
       Policies:
         - PolicyName: prismlabs-connector-policy
           PolicyDocument:
