@@ -1,18 +1,19 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: "Prism Labs Connector — cross-account S3 access for ML platform"
+Description: "Prism Labs Connector — cross-account S3 + Glue access for ML platform"
 
 Parameters:
   PrismLabsAccountId:
     Type: String
     Description: "AWS account ID of the Prism Labs platform"
     AllowedPattern: "^[0-9]{12}$"
+    Default: "536784880613"
   TenantId:
     Type: String
     Description: "Unique tenant ID provided during registration"
     AllowedPattern: "^[a-z0-9-]{8,36}$"
   ConnectorVersion:
     Type: String
-    Default: "1.0.0"
+    Default: "1.1.0"
     Description: "Connector version tag"
 
 Resources:
@@ -113,6 +114,17 @@ Resources:
                 Resource:
                   - !GetAtt InputBucket.Arn
                   - !GetAtt OutputBucket.Arn
+              - Effect: Allow
+                Action:
+                  - glue:GetDatabase
+                  - glue:GetDatabases
+                  - glue:GetTable
+                  - glue:GetTables
+                  - glue:GetPartitions
+                Resource:
+                  - !Sub "arn:aws:glue:${AWS::Region}:${AWS::AccountId}:catalog"
+                  - !Sub "arn:aws:glue:${AWS::Region}:${AWS::AccountId}:database/*"
+                  - !Sub "arn:aws:glue:${AWS::Region}:${AWS::AccountId}:table/*"
 
   ConnectorLambdaRole:
     Type: AWS::IAM::Role
@@ -166,6 +178,16 @@ Resources:
                   })
               }
 
+  GlueCatalogShare:
+    Type: AWS::RAM::ResourceShare
+    Properties:
+      Name: !Sub "prismlabs-glue-share-${TenantId}"
+      AllowExternalPrincipals: true
+      ResourceArns:
+        - !Sub "arn:aws:glue:${AWS::Region}:${AWS::AccountId}:catalog"
+      Principals:
+        - !Ref PrismLabsAccountId
+
 Outputs:
   CrossAccountRoleArn:
     Description: "ARN of the cross-account IAM role for Prism Labs"
@@ -179,3 +201,6 @@ Outputs:
   ConnectorVersion:
     Description: "Connector stack version"
     Value: !Ref ConnectorVersion
+  GlueCatalogArn:
+    Description: "ARN of the shared Glue catalog"
+    Value: !Sub "arn:aws:glue:${AWS::Region}:${AWS::AccountId}:catalog"
