@@ -13,7 +13,7 @@ Parameters:
     AllowedPattern: "^[a-z0-9-]{8,36}$"
   ConnectorVersion:
     Type: String
-    Default: "1.1.0"
+    Default: "1.2.0"
     Description: "Connector version tag"
 
 Resources:
@@ -39,6 +39,16 @@ Resources:
       Bucket: !Ref InputBucket
       PolicyDocument:
         Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${PrismLabsAccountId}:root"
+            Action:
+              - s3:GetObject
+              - s3:ListBucket
+              - s3:GetBucketLocation
+            Resource:
+              - !GetAtt InputBucket.Arn
+              - !Sub "${InputBucket.Arn}/*"
           - Effect: Deny
             Principal: "*"
             Action: "s3:*"
