@@ -13,7 +13,7 @@ Parameters:
     AllowedPattern: "^[a-z0-9-]{8,36}$"
   ConnectorVersion:
     Type: String
-    Default: "1.2.0"
+    Default: "1.3.0"
     Description: "Connector version tag"
 
 Resources:
@@ -81,6 +81,17 @@ Resources:
       Bucket: !Ref OutputBucket
       PolicyDocument:
         Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${PrismLabsAccountId}:root"
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:ListBucket
+              - s3:GetBucketLocation
+            Resource:
+              - !GetAtt OutputBucket.Arn
+              - !Sub "${OutputBucket.Arn}/*"
           - Effect: Deny
             Principal: "*"
             Action: "s3:*"
@@ -90,6 +101,36 @@ Resources:
             Condition:
               Bool:
                 "aws:SecureTransport": "false"
+
+  GlueResourcePolicy:
+    Type: AWS::Glue::ResourcePolicy
+    Properties:
+      EnableHybrid: "TRUE"
+      PolicyInJson: !Sub |
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "AllowPrismLabsGlueRead",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": "arn:aws:iam::${PrismLabsAccountId}:root"
+              },
+              "Action": [
+                "glue:GetDatabase",
+                "glue:GetDatabases",
+                "glue:GetTable",
+                "glue:GetTables",
+                "glue:GetPartitions"
+              ],
+              "Resource": [
+                "arn:aws:glue:${AWS::Region}:${AWS::AccountId}:catalog",
+                "arn:aws:glue:${AWS::Region}:${AWS::AccountId}:database/*",
+                "arn:aws:glue:${AWS::Region}:${AWS::AccountId}:table/*/*"
+              ]
+            }
+          ]
+        }
 
   CrossAccountRole:
     Type: AWS::IAM::Role
